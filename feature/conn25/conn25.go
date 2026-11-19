@@ -1087,7 +1087,6 @@ func validateAndGetQuestion(questions []dnsmessage.Question) (dnsmessage.Questio
 // resolve a map of domain -> address in a conn25 canonical way.
 type dnsResponseParser struct {
 	p             *dnsmessage.Parser
-	appName       string
 	queriedDomain dnsname.FQDN
 	hdr           dnsmessage.Header
 	question      dnsmessage.Question
@@ -1124,18 +1123,14 @@ func parseQuestion(buf []byte) (*dnsResponseParser, bool, error) {
 	return parseResult, true, nil
 }
 
-// matchToApp sets appName and returns a boolean of whether it was set.
-// If it was not set then the queriedDomain does not match the config.
-// matchToApp expects that parseQuestion has been called, but specifically
-// requires that queriedDomain is not the empty string.
-func (p *dnsResponseParser) matchToApp(cfg *config, prefsAdvertiseConnector bool) (bool, error) {
-	if p.queriedDomain == "" {
-		return false, errors.New("queriedDomain is empty")
+func matchToApp(queriedDomain dnsname.FQDN, cfg *config, prefsAdvertiseConnector bool) (string, bool) {
+	if queriedDomain == "" {
+		return "", false
 	}
-	appNames := cfg.getAppsForConnectorDomain(p.queriedDomain, prefsAdvertiseConnector)
+	appNames := cfg.getAppsForConnectorDomain(queriedDomain, prefsAdvertiseConnector)
 	if len(appNames) == 0 {
 		// There's no apps covering this domain.
-		return false, nil
+		return "", false
 	}
 	// There is guaranteed to be at least one matching app, so just take the first one for now
 	// TODO(tailscale/corp#50408): We have access to res.DoHMeta.RequestURL, so we can easily see the requested
@@ -1143,8 +1138,7 @@ func (p *dnsResponseParser) matchToApp(cfg *config, prefsAdvertiseConnector bool
 	// of just taking the first one. We can also verify the connector node advertises the app in its
 	// CapMap.
 	appName := appNames[0]
-	p.appName = appName
-	return true, nil
+	return appName, true
 }
 
 type addrTTL struct {
@@ -1292,8 +1286,8 @@ func (e *extension) mapDNSResponse(res *resolver.Response) []byte {
 		return buf
 	}
 
-	ok, err = parser.matchToApp(cfg, prefsAdvertiseConnector)
-	if err != nil || !ok {
+	appName, ok := matchToApp(parser.queriedDomain, cfg, prefsAdvertiseConnector)
+	if !ok {
 		return buf
 	}
 
@@ -1341,7 +1335,7 @@ func (e *extension) mapDNSResponse(res *resolver.Response) []byte {
 		}
 	}
 
-	newBuf, err := c.client.rewriteDNSResponse(parser.appName, parser.hdr, parser.question, answers)
+	newBuf, err := c.client.rewriteDNSResponse(appName, parser.hdr, parser.question, answers)
 	if err != nil {
 		metricDNSResponseRewriteErrorServfail.Add(1)
 		c.logf("error rewriting dns response: %v", err)

@@ -4265,7 +4265,6 @@ func TestMatchToApp(t *testing.T) {
 		prefsAdvertiseConnector bool
 		wantOK                  bool
 		wantAppName             string
-		wantErr                 bool
 	}{
 		{
 			name:          "matches-first-app",
@@ -4279,10 +4278,9 @@ func TestMatchToApp(t *testing.T) {
 			wantOK:        false,
 		},
 		{
-			name:          "empty-domain-errors",
+			name:          "empty-domain",
 			queriedDomain: "",
 			wantOK:        false,
-			wantErr:       true,
 		},
 		{
 			name:                    "self-routed-suppressed-when-advertising",
@@ -4292,19 +4290,15 @@ func TestMatchToApp(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			p := &dnsResponseParser{queriedDomain: tt.queriedDomain}
-			ok, err := p.matchToApp(cfg, tt.prefsAdvertiseConnector)
-			if gotErr := err != nil; gotErr != tt.wantErr {
-				t.Fatalf("err = %v, wantErr = %v", err, tt.wantErr)
-			}
+			appName, ok := matchToApp(tt.queriedDomain, cfg, tt.prefsAdvertiseConnector)
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
 			}
-			if ok && p.appName != tt.wantAppName {
-				t.Errorf("appName = %q, want %q", p.appName, tt.wantAppName)
+			if ok && appName != tt.wantAppName {
+				t.Errorf("appName = %q, want %q", appName, tt.wantAppName)
 			}
-			if !ok && p.appName != "" {
-				t.Errorf("appName = %q, want empty on no match", p.appName)
+			if !ok && appName != "" {
+				t.Errorf("appName = %q, want empty on no match", appName)
 			}
 		})
 	}

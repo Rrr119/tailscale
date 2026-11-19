@@ -5,10 +5,13 @@ package netstack
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"net"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
@@ -25,6 +28,7 @@ import (
 	"gvisor.dev/gvisor/pkg/waiter"
 	"tailscale.com/envknob"
 	"tailscale.com/ipn"
+	"tailscale.com/ipn/conffile"
 	"tailscale.com/ipn/ipnlocal"
 	"tailscale.com/ipn/store/mem"
 	"tailscale.com/metrics"
@@ -33,6 +37,7 @@ import (
 	"tailscale.com/net/tsaddr"
 	"tailscale.com/net/tsdial"
 	"tailscale.com/net/tstun"
+	"tailscale.com/tailcfg"
 	"tailscale.com/tsd"
 	"tailscale.com/tstest"
 	"tailscale.com/types/ipproto"
@@ -109,9 +114,19 @@ func getMemStats() (ms runtime.MemStats) {
 }
 
 func makeNetstack(tb testing.TB, config func(*Impl)) *Impl {
+	return makeNetstackWithSys(tb, nil, config)
+}
+
+// makeNetstackWithSys is like makeNetstack, but calls configSys on the
+// tsd.System before the LocalBackend is created, so tests can set fields
+// like InitialConfig that NewLocalBackend reads.
+func makeNetstackWithSys(tb testing.TB, configSys func(*tsd.System), config func(*Impl)) *Impl {
 	tunDev := tstun.NewFake()
 	sys := tsd.NewSystem()
 	sys.Set(new(mem.Store))
+	if configSys != nil {
+		configSys(sys)
+	}
 	dialer := new(tsdial.Dialer)
 	logf := tstest.WhileTestRunningLogger(tb)
 	eng, err := wgengine.NewUserspaceEngine(logf, wgengine.Config{
@@ -2232,5 +2247,68 @@ func TestInjectLoopback(t *testing.T) {
 	}
 	if got := string(buf[:n]); got != "loopback test" {
 		t.Errorf("got %q, want %q", got, "loopback test")
+	}
+}
+
+// TestReloadConfigUpdatesActiveVIPServices verifies that a change to
+// AdvertiseServices applied through a config file reload reaches netstack's
+// set of active Tailscale Services, not only the prefs.
+//
+// Regression test for tailscale/tailscale#22498.
+func TestReloadConfigUpdatesActiveVIPServices(t *testing.T) {
+	const svcA, svcB = "svc:a", "svc:b"
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tailscale.conf")
+	writeConf := func(services ...string) {
+		t.Helper()
+		raw, err := json.Marshal(ipn.ConfigVAlpha{
+			Version:           "alpha0",
+			AdvertiseServices: services,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, raw, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeConf(svcA)
+	initial, err := conffile.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ns := makeNetstackWithSys(t, func(sys *tsd.System) {
+		sys.InitialConfig = initial
+	}, nil)
+
+	active := func() []string {
+		var got []string
+		for s := range ns.atomicActiveVIPServices.Load() {
+			got = append(got, s.String())
+		}
+		return got
+	}
+	isActive := func(name string) bool {
+		return ns.atomicActiveVIPServices.Load().Contains(tailcfg.ServiceName(name))
+	}
+
+	// Swap the advertised Service from A to B and reload.
+	writeConf(svcB)
+	if ok, err := ns.lb.ReloadConfig(); !ok || err != nil {
+		t.Fatalf("ReloadConfig() = %v, %v; want true, nil", ok, err)
+	}
+	if isActive(svcA) || !isActive(svcB) {
+		t.Errorf("after reload, active services = %v; want only %q", active(), svcB)
+	}
+
+	// Withdraw every Service and reload.
+	writeConf()
+	if ok, err := ns.lb.ReloadConfig(); !ok || err != nil {
+		t.Fatalf("ReloadConfig() = %v, %v; want true, nil", ok, err)
+	}
+	if got := active(); len(got) != 0 {
+		t.Errorf("after withdrawing all services, active services = %v; want none", got)
 	}
 }

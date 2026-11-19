@@ -1,0 +1,17 @@
+{
+  "root": "/home/dev/feedback/uid28758",
+  "B": "/home/dev/feedback/uid28758",
+  "sha": "c128d7c3a3104d59282dcc7b66928e72fe654172",
+  "wslDistro": "Ubuntu-26.04",
+  "source": {
+    "owner": "tailscale",
+    "repo": "tailscale",
+    "sha": "c128d7c3a3104d59282dcc7b66928e72fe654172"
+  },
+  "fork": {
+    "owner": "Rrr119",
+    "repo": "tailscale",
+    "cloneUrl": "https://github.com/Rrr119/tailscale.git"
+  },
+  "at": "2026-11-19T23:14:17.103Z"
+}

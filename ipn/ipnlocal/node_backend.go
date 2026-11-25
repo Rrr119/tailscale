@@ -1062,6 +1062,14 @@ func (nb *nodeBackend) PacketFilter() []filter.Match {
 	return nb.packetFilter
 }
 
+// PacketFilterRules returns the current live packet-filter rules exactly as
+// received from the control plane, before any local extension transforms.
+func (nb *nodeBackend) PacketFilterRules() views.Slice[tailcfg.FilterRule] {
+	nb.mu.Lock()
+	defer nb.mu.Unlock()
+	return nb.packetFilterRules
+}
+
 // mergeUserProfiles merges new/updated [tailcfg.UserProfileView]
 // entries into the live userProfiles map. It does not touch
 // netMap.UserProfiles (which is frozen once set). Callers must hold

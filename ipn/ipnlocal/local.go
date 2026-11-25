@@ -3638,6 +3638,22 @@ func (b *LocalBackend) updateFilterLocked(prefs ipn.PrefsView) {
 			packetFilter = nil
 		} else {
 			b.health.SetHealthy(invalidPacketFilterWarnable)
+
+			// Apply local dynamic-ACL transforms (e.g. device-posture
+			// based restrictions) on top of the control-plane rules.
+			// The transform only ever tightens the base policy, and the
+			// resulting rules are recompiled into matches here.
+			if fn, ok := b.extHost.hooks.Filter.TransformFilterRules.GetOk(); ok {
+				baseRules := cn.PacketFilterRules().AsSlice()
+				transformed := fn(baseRules)
+				matches, err := filter.MatchesFromFilterRules(transformed)
+				if err != nil {
+					b.logf("posture ACL: recompiling transformed filter rules failed; failing closed: %v", err)
+					packetFilter = nil
+				} else {
+					packetFilter = matches
+				}
+			}
 		}
 
 		if err := addServiceIPs(&localNetsB, netMap.SelfNode); err != nil {
@@ -3783,6 +3799,16 @@ func (b *LocalBackend) setFilter(f *filter.Filter) {
 	if ms, ok := b.sys.MagicSock.GetOK(); ok {
 		ms.SetFilter(f)
 	}
+}
+
+// RebuildPacketFilter recomputes and reinstalls the packet filter from the
+// current netmap, prefs and any extension filter transforms. It is used by
+// device-posture-based dynamic ACLs to apply a new posture immediately rather
+// than waiting for an unrelated netmap or prefs change.
+func (b *LocalBackend) RebuildPacketFilter() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.updateFilterLocked(b.pm.CurrentPrefs())
 }
 
 var removeFromDefaultRoute = []netip.Prefix{

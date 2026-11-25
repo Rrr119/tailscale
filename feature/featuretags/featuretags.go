@@ -265,7 +265,8 @@ var Features = map[FeatureTag]FeatureMeta{
 		Desc: "NAT-PMP/PCP/UPnP port mapping support",
 		Deps: []FeatureTag{"nattraversal"},
 	},
-	"posture": {Sym: "Posture", Desc: "Device posture checking support"},
+	"posture":    {Sym: "Posture", Desc: "Device posture checking support"},
+	"postureacl": {Sym: "PostureACL", Desc: "Device-posture-based dynamic ACL enforcement"},
 	"dns": {
 		Sym:  "DNS",
 		Desc: "MagicDNS and system DNS configuration support",

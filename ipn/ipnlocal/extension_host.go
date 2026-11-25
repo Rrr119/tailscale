@@ -130,6 +130,10 @@ type Backend interface {
 
 	authReconfig()
 
+	// RebuildPacketFilter recomputes and reinstalls the packet filter from
+	// current state and extension transforms.
+	RebuildPacketFilter()
+
 	ipnext.SafeBackend
 }
 
@@ -563,6 +567,18 @@ func (h *ExtensionHost) AuthReconfigAsync() {
 	h.enqueueBackendOperation(func(b Backend) {
 		h.hasPendingAuthReconfig.Store(false)
 		b.authReconfig()
+	})
+}
+
+// RebuildPacketFilterAsync recomputes and reinstalls the packet filter on the
+// backend's work queue. It lets extensions such as device-posture dynamic
+// ACLs apply an immediate filter change without a full auth reconfiguration.
+func (h *ExtensionHost) RebuildPacketFilterAsync() {
+	if h == nil {
+		return
+	}
+	h.enqueueBackendOperation(func(b Backend) {
+		b.RebuildPacketFilter()
 	})
 }
 

@@ -225,6 +225,14 @@ type Host interface {
 	// than prefs and netmap changes), except in experimental or proof-of-concept
 	// contexts, since reconfiguration is known to be slow.
 	AuthReconfigAsync()
+
+	// RebuildPacketFilterAsync recomputes and reinstalls the node's packet
+	// filter from the current netmap, prefs and any registered filter
+	// transforms. Unlike [Host.AuthReconfigAsync], it does not touch the
+	// data-plane configuration; it is intended for extensions that only
+	// change which packets the local filter accepts, such as
+	// device-posture-based dynamic ACLs.
+	RebuildPacketFilterAsync()
 }
 
 // SafeBackend is a subset of the [ipnlocal.LocalBackend] type's methods that
@@ -536,6 +544,18 @@ type Hooks struct {
 // FilterHooks contains hooks that extensions can use to customize the packet
 // filter. Field names match the corresponding fields in filter.Filter.
 type FilterHooks struct {
+	// TransformFilterRules, if set, rewrites the inbound packet-filter rules
+	// distributed by the control plane before they are compiled and installed
+	// in the engine. It is used by device-posture-based dynamic ACLs to tighten
+	// the base policy for less trusted devices.
+	//
+	// The hook receives the current control-plane rules and must return the
+	// rules to enforce. It must only remove access, never grant access the
+	// base rules do not already provide, and it must not retain or mutate the
+	// input slice after returning. It is called with LocalBackend's mutex
+	// held, so it must be cheap and must not call back into LocalBackend.
+	TransformFilterRules feature.Hook[func(base []tailcfg.FilterRule) []tailcfg.FilterRule]
+
 	// IngressAllowHooks are hooks that allow extensions to accept inbound
 	// packets beyond the standard filter rules. Packets that are not dropped
 	// by the direction-agnostic pre-check, but would be not accepted by the

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	deepcmp "github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -514,6 +515,32 @@ func TestExtensionHostEnqueueBackendOperation(t *testing.T) {
 			}
 			gotCalls = nil
 		})
+	}
+}
+
+// TestRebuildPacketFilterAsync verifies that the host forwards a packet-filter
+// rebuild request onto the backend's work queue, as used by device-posture
+// dynamic ACLs to apply a posture change immediately.
+func TestRebuildPacketFilterAsync(t *testing.T) {
+	t.Parallel()
+
+	rebuilt := make(chan struct{}, 1)
+	b := &testBackend{
+		rebuildFilterHook: func() {
+			rebuilt <- struct{}{}
+		},
+	}
+	h := newExtensionHostForTest(t, b, false, &testExtension{})
+	wq := h.SetWorkQueueForTest(t)
+	h.Init()
+
+	h.RebuildPacketFilterAsync()
+	wq.Drain()
+
+	select {
+	case <-rebuilt:
+	case <-time.After(2 * time.Second):
+		t.Fatal("backend RebuildPacketFilter was not invoked")
 	}
 }
 
@@ -1361,6 +1388,7 @@ func (q *testExecQueue) Wait(context.Context) error { return nil }
 type testBackend struct {
 	lazySys                 lazy.SyncValue[*tsd.System]
 	switchToBestProfileHook func(reason string)
+	rebuildFilterHook       func()
 
 	// mu protects the backend state.
 	// It is acquired on entry to the exported methods of the backend
@@ -1376,6 +1404,11 @@ func (b *testBackend) SendNotify(ipn.Notify)           { panic("not implemented"
 func (b *testBackend) NodeBackend() ipnext.NodeBackend { panic("not implemented") }
 func (b *testBackend) TailscaleVarRoot() string        { panic("not implemented") }
 func (b *testBackend) authReconfig()                   { panic("not implemented") }
+func (b *testBackend) RebuildPacketFilter() {
+	if b.rebuildFilterHook != nil {
+		b.rebuildFilterHook()
+	}
+}
 
 func (b *testBackend) SwitchToBestProfile(reason string) {
 	b.mu.Lock()
